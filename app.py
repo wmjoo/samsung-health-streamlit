@@ -195,13 +195,16 @@ with tab1:
         hovertemplate="%{x|%Y-%m-%d}<br>체중: %{y:.2f} kg<extra></extra>",
     ))
 
+    COLOR_MIN = "#1c7c3a"   # Streamlit success 텍스트 색조
+    COLOR_MAX = "#a63228"   # Streamlit error 텍스트 색조
+
     # 최저 마커
     fig.add_trace(go.Scatter(
         x=[d_min["date"]], y=[d_min["weight"]],
         mode="markers",
         name="최저",
-        marker=dict(size=11, color="green", symbol="circle",
-                    line=dict(color="darkgreen", width=1.5)),
+        marker=dict(size=11, color=COLOR_MIN, symbol="circle",
+                    line=dict(color=COLOR_MIN, width=1.5)),
         hovertemplate=f"최저: {d_min['weight']:.2f} kg<br>{d_min['date'].strftime('%Y-%m-%d')}<extra></extra>",
     ))
 
@@ -210,8 +213,8 @@ with tab1:
         x=[d_max["date"]], y=[d_max["weight"]],
         mode="markers",
         name="최고",
-        marker=dict(size=11, color="red", symbol="circle",
-                    line=dict(color="darkred", width=1.5)),
+        marker=dict(size=11, color=COLOR_MAX, symbol="circle",
+                    line=dict(color=COLOR_MAX, width=1.5)),
         hovertemplate=f"최고: {d_max['weight']:.2f} kg<br>{d_max['date'].strftime('%Y-%m-%d')}<extra></extra>",
     ))
 
@@ -220,14 +223,14 @@ with tab1:
         dict(
             x=d_min["date"], y=d_min["weight"],
             text=f"<b>{d_min['weight']:.1f} kg</b>",
-            showarrow=True, arrowhead=2, arrowcolor="green",
-            ax=0, ay=30, font=dict(color="green", size=12),
+            showarrow=True, arrowhead=2, arrowcolor=COLOR_MIN,
+            ax=0, ay=30, font=dict(color=COLOR_MIN, size=12),
         ),
         dict(
             x=d_max["date"], y=d_max["weight"],
             text=f"<b>{d_max['weight']:.1f} kg</b>",
-            showarrow=True, arrowhead=2, arrowcolor="red",
-            ax=0, ay=-30, font=dict(color="red", size=12),
+            showarrow=True, arrowhead=2, arrowcolor=COLOR_MAX,
+            ax=0, ay=-30, font=dict(color=COLOR_MAX, size=12),
         ),
     ]
 
