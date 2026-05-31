@@ -411,6 +411,8 @@ with tab4:
     valid_agg_cols = [c for c in agg_cols if c in df.columns]
     df_raw_daily = daily_agg(df, valid_agg_cols).drop(columns="year_month")
     df_raw_daily = df_raw_daily.sort_values("date", ascending=False)
+    # 전체가 결측치인 컬럼 제거
+    df_raw_daily = df_raw_daily.dropna(axis=1, how="all")
     df_raw_daily.columns = [c if c != "date" else "날짜" for c in df_raw_daily.columns]
 
     st.dataframe(df_raw_daily, use_container_width=True, hide_index=True)
