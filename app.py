@@ -307,7 +307,7 @@ with tab2:
             st.plotly_chart(fig2, use_container_width=True)
 
 
-# ── Tab 3: 월별 분석 (박스플롯) ───────────────────────────────────────────────
+# ── Tab 3: 월별 분석 (박스플롯 서브플롯) ─────────────────────────────────────
 with tab3:
     BOX_COLS = {
         "weight": ("체중 (kg)", "rgba(99,110,250,0.7)"),
@@ -317,44 +317,52 @@ with tab3:
     available_box = {k: v for k, v in BOX_COLS.items()
                      if k in df.columns and df[k].notna().sum() > 5}
 
-    for col_key, (label, color) in available_box.items():
-        sub = df[["year_month", col_key]].dropna()
-        months = sorted(sub["year_month"].unique())
+    if available_box:
+        n = len(available_box)
+        # 모든 항목에서 공통 월 집합 추출 (x축 공유)
+        all_months = sorted(df["year_month"].unique())
 
-        fig_box = go.Figure()
-        for month in months:
-            vals = sub.loc[sub["year_month"] == month, col_key]
-            fig_box.add_trace(go.Box(
-                y=vals,
-                name=month,
-                marker_color=color,
-                boxmean=True,
-                showlegend=False,
-                hovertemplate=f"{month}<br>{label}: %{{y:.2f}}<extra></extra>",
-            ))
+        fig_box = make_subplots(
+            rows=n, cols=1,
+            shared_xaxes=True,
+            subplot_titles=[v[0] for v in available_box.values()],
+            vertical_spacing=0.06,
+        )
 
-        fig_box.update_layout(
-            title=f"월별 {label} 분포",
-            xaxis_title="연월",
-            yaxis_title=label,
-            height=400,
-            plot_bgcolor="white",
-            xaxis=dict(
-                showgrid=True,
-                gridcolor="rgba(150,150,150,0.5)",
-                gridwidth=1,
-                tickangle=-45,
-                showline=True,
-                linecolor="rgba(100,100,100,0.5)",
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor="rgba(150,150,150,0.4)",
-                gridwidth=1,
+        for row, (col_key, (label, color)) in enumerate(available_box.items(), 1):
+            sub = df[["year_month", col_key]].dropna()
+            for month in all_months:
+                vals = sub.loc[sub["year_month"] == month, col_key]
+                fig_box.add_trace(
+                    go.Box(
+                        y=vals,
+                        name=month,
+                        marker_color=color,
+                        boxmean=True,
+                        showlegend=False,
+                        hovertemplate=f"{month}<br>{label}: %{{y:.2f}}<extra></extra>",
+                    ),
+                    row=row, col=1,
+                )
+            fig_box.update_yaxes(
+                title_text=label,
+                showgrid=True, gridcolor="rgba(150,150,150,0.4)", gridwidth=1,
                 minor=dict(showgrid=True, gridcolor="rgba(200,200,200,0.25)", gridwidth=0.5),
-                showline=True,
-                linecolor="rgba(100,100,100,0.5)",
-            ),
+                showline=True, linecolor="rgba(100,100,100,0.5)",
+                row=row, col=1,
+            )
+
+        # x축은 맨 아래 행만 표시
+        fig_box.update_xaxes(
+            showgrid=True, gridcolor="rgba(150,150,150,0.5)", gridwidth=1,
+            tickangle=-45,
+            showline=True, linecolor="rgba(100,100,100,0.5)",
+            row=n, col=1,
+        )
+        fig_box.update_layout(
+            title="월별 체성분 분포",
+            height=320 * n,
+            plot_bgcolor="white",
         )
         st.plotly_chart(fig_box, use_container_width=True)
 
