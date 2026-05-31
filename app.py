@@ -370,7 +370,7 @@ with tab2:
                         mode="lines+markers",
                         name=available[key],
                         line=dict(color=colors[(i - 1) % len(colors)]),
-                        marker=dict(size=4),
+                        marker=dict(size=7),
                         hovertemplate=f"%{{x|%Y-%m-%d}}<br>{available[key]}: %{{y:.2f}}<extra></extra>",
                     ),
                     row=i, col=1,
