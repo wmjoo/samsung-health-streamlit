@@ -147,20 +147,11 @@ with tab1:
         "전체":       ("M6", "M1"),
     }
 
-    col_period, col_ma = st.columns([2, 2])
-    with col_period:
-        period_label = st.selectbox(
-            "기간",
-            options=list(PERIOD_OPTIONS.keys()),
-            index=1,  # 기본: 최근 90일
-        )
-    with col_ma:
-        ma_days = st.select_slider(
-            "이동평균",
-            options=[0, 7, 14, 30],
-            value=7,
-            format_func=lambda x: "없음" if x == 0 else f"{x}일",
-        )
+    period_label = st.selectbox(
+        "기간",
+        options=list(PERIOD_OPTIONS.keys()),
+        index=1,  # 기본: 최근 90일
+    )
 
     period_days = PERIOD_OPTIONS[period_label]
     if period_days is not None:
@@ -171,26 +162,33 @@ with tab1:
 
     dtick_major, dtick_minor = PERIOD_DTICK[period_label]
 
+    MA_LINES = [
+        (7,  "7일 MA",  "rgba(255,165,0,0.9)"),
+        (15, "15일 MA", "rgba(239,85,59,0.9)"),
+        (30, "30일 MA", "rgba(0,180,100,0.9)"),
+        (90, "90일 MA", "rgba(99,110,250,0.9)"),
+    ]
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df_t["start_time"], y=df_t["weight"],
         mode="markers",
         name="체중",
-        marker=dict(size=5, color="rgba(99,110,250,0.5)"),
+        marker=dict(size=4, color="rgba(160,160,180,0.5)"),
         hovertemplate="%{x|%Y-%m-%d}<br>체중: %{y:.2f} kg<extra></extra>",
     ))
 
-    if ma_days > 0 and len(df_t) > 0:
-        ma = (df_t.set_index("start_time")["weight"]
-              .rolling(f"{ma_days}D", min_periods=1).mean()
-              .reset_index())
-        fig.add_trace(go.Scatter(
-            x=ma["start_time"], y=ma["weight"],
-            mode="lines",
-            name=f"{ma_days}일 이동평균",
-            line=dict(color="crimson", width=2),
-            hovertemplate="%{x|%Y-%m-%d}<br>평균: %{y:.2f} kg<extra></extra>",
-        ))
+    if len(df_t) > 0:
+        ts = df_t.set_index("start_time")["weight"]
+        for ma_d, ma_name, ma_color in MA_LINES:
+            ma = ts.rolling(f"{ma_d}D", min_periods=1).mean().reset_index()
+            fig.add_trace(go.Scatter(
+                x=ma["start_time"], y=ma["weight"],
+                mode="lines",
+                name=ma_name,
+                line=dict(color=ma_color, width=2),
+                hovertemplate=f"%{{x|%Y-%m-%d}}<br>{ma_name}: %{{y:.2f}} kg<extra></extra>",
+            ))
 
     fig.update_layout(
         title=f"체중 변화 추이 ({period_label})",
@@ -199,6 +197,13 @@ with tab1:
         hovermode="x unified",
         height=480,
         plot_bgcolor="white",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.15,
+            xanchor="center",
+            x=0.5,
+        ),
         xaxis=dict(
             showgrid=True,
             gridcolor="rgba(150,150,150,0.4)",
