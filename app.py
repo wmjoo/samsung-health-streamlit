@@ -98,6 +98,17 @@ def load_data(content: bytes) -> pd.DataFrame:
     return df
 
 
+def daily_agg(df: pd.DataFrame, cols: list, func: str = "mean") -> pd.DataFrame:
+    """날짜별 집계 (평균 or 중앙값). date 컬럼 + 지정 컬럼만 반환."""
+    return (
+        df.groupby("date")[cols]
+        .agg(func)
+        .reset_index()
+        .assign(date=lambda d: pd.to_datetime(d["date"]),
+                year_month=lambda d: d["date"].dt.to_period("M").astype(str))
+    )
+
+
 df = load_data(uploaded.read())
 
 if df.empty:
@@ -282,6 +293,9 @@ with tab2:
         )
 
         if selected:
+            # 일별 집계
+            df_comp = daily_agg(df, [k for k in selected if k in df.columns])
+
             fig2 = make_subplots(
                 rows=len(selected), cols=1,
                 shared_xaxes=True,
@@ -291,10 +305,10 @@ with tab2:
             colors = px.colors.qualitative.Plotly
 
             for i, key in enumerate(selected, 1):
-                sub = df[["start_time", key]].dropna()
+                sub = df_comp[["date", key]].dropna()
                 fig2.add_trace(
                     go.Scatter(
-                        x=sub["start_time"], y=sub[key],
+                        x=sub["date"], y=sub[key],
                         mode="lines+markers",
                         name=available[key],
                         line=dict(color=colors[(i - 1) % len(colors)]),
@@ -339,8 +353,10 @@ with tab3:
 
     if available_box:
         n = len(available_box)
-        # 모든 항목에서 공통 월 집합 추출 (x축 공유)
-        all_months = sorted(df["year_month"].unique())
+        # 일별 집계 후 월별 박스플롯 — 하루에 여러 번 측정해도 1일 1값
+        box_keys = [k for k in available_box]
+        df_box = daily_agg(df, [k for k in box_keys if k in df.columns])
+        all_months = sorted(df_box["year_month"].unique())
 
         fig_box = make_subplots(
             rows=n, cols=1,
@@ -350,7 +366,7 @@ with tab3:
         )
 
         for row, (col_key, (label, color)) in enumerate(available_box.items(), 1):
-            sub = df[["year_month", col_key]].dropna()
+            sub = df_box[["year_month", col_key]].dropna()
             for month in all_months:
                 vals = sub.loc[sub["year_month"] == month, col_key]
                 fig_box.add_trace(
@@ -390,19 +406,18 @@ with tab3:
 # ── Tab 4: 원시 데이터 ────────────────────────────────────────────────────────
 with tab4:
     st.info("이 데이터는 현재 세션에서만 존재하며 페이지를 닫으면 사라집니다.")
-    display_cols = ["start_time", "weight", "body_fat", "body_fat_mass",
-                    "muscle_mass", "skeletal_muscle_mass", "fat_free_mass",
-                    "basal_metabolic_rate", "height"]
-    show_cols = [c for c in display_cols if c in df.columns]
-    st.dataframe(
-        df[show_cols].sort_values("start_time", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-    )
-    csv_export = df[show_cols].to_csv(index=False).encode("utf-8")
+    agg_cols = ["weight", "body_fat", "body_fat_mass", "muscle_mass",
+                "skeletal_muscle_mass", "fat_free_mass", "basal_metabolic_rate"]
+    valid_agg_cols = [c for c in agg_cols if c in df.columns]
+    df_raw_daily = daily_agg(df, valid_agg_cols).drop(columns="year_month")
+    df_raw_daily = df_raw_daily.sort_values("date", ascending=False)
+    df_raw_daily.columns = [c if c != "date" else "날짜" for c in df_raw_daily.columns]
+
+    st.dataframe(df_raw_daily, use_container_width=True, hide_index=True)
+    csv_export = df_raw_daily.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "⬇️ 데이터 CSV 다운로드",
+        "⬇️ 일별 집계 CSV 다운로드",
         csv_export,
-        file_name="weight_data.csv",
+        file_name="weight_daily.csv",
         mime="text/csv",
     )
