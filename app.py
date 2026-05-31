@@ -147,11 +147,18 @@ with tab1:
         "전체":       ("M6", "M1"),
     }
 
-    period_label = st.selectbox(
-        "기간",
-        options=list(PERIOD_OPTIONS.keys()),
-        index=1,  # 기본: 최근 90일
-    )
+    col_period, col_agg = st.columns([2, 2])
+    with col_period:
+        period_label = st.selectbox(
+            "기간",
+            options=list(PERIOD_OPTIONS.keys()),
+            index=1,
+        )
+    with col_agg:
+        use_median = st.toggle("중앙값 사용 (기본: 평균)", value=False)
+
+    agg_func = "median" if use_median else "mean"
+    agg_label = "중앙값" if use_median else "평균"
 
     period_days = PERIOD_OPTIONS[period_label]
     if period_days is not None:
@@ -159,6 +166,14 @@ with tab1:
         df_t = df[df["start_time"] >= cutoff].copy()
     else:
         df_t = df.copy()
+
+    # 일별 집계 (평균 or 중앙값)
+    df_daily = (
+        df_t.groupby("date")["weight"]
+        .agg(agg_func)
+        .reset_index()
+    )
+    df_daily["date"] = pd.to_datetime(df_daily["date"])
 
     dtick_major, dtick_minor = PERIOD_DTICK[period_label]
 
@@ -171,19 +186,19 @@ with tab1:
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df_t["start_time"], y=df_t["weight"],
+        x=df_daily["date"], y=df_daily["weight"],
         mode="markers",
-        name="체중",
+        name=f"일별 {agg_label}",
         marker=dict(size=4, color="rgba(160,160,180,0.5)"),
         hovertemplate="%{x|%Y-%m-%d}<br>체중: %{y:.2f} kg<extra></extra>",
     ))
 
-    if len(df_t) > 0:
-        ts = df_t.set_index("start_time")["weight"]
+    if len(df_daily) > 0:
+        ts = df_daily.set_index("date")["weight"]
         for ma_d, ma_name, ma_color in MA_LINES:
             ma = ts.rolling(f"{ma_d}D", min_periods=1).mean().reset_index()
             fig.add_trace(go.Scatter(
-                x=ma["start_time"], y=ma["weight"],
+                x=ma["date"], y=ma["weight"],
                 mode="lines",
                 name=ma_name,
                 line=dict(color=ma_color, width=2),
@@ -191,8 +206,8 @@ with tab1:
             ))
 
     fig.update_layout(
-        title=f"체중 변화 추이 ({period_label})",
-        xaxis_title="날짜",
+        title=f"체중 변화 추이 ({period_label} · 일별 {agg_label})",
+        xaxis_title=None,
         yaxis_title="체중 (kg)",
         hovermode="x unified",
         height=480,
@@ -234,14 +249,14 @@ with tab1:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    if len(df_t) > 0:
+    if len(df_daily) > 0:
         col_l, col_r = st.columns(2)
         with col_l:
-            r = df_t.loc[df_t["weight"].idxmin()]
-            st.success(f"**최저 체중**: {r['weight']:.2f} kg — {r['start_time'].strftime('%Y-%m-%d')}")
+            r = df_daily.loc[df_daily["weight"].idxmin()]
+            st.success(f"**최저 체중**: {r['weight']:.2f} kg — {r['date'].strftime('%Y-%m-%d')}")
         with col_r:
-            r = df_t.loc[df_t["weight"].idxmax()]
-            st.error(f"**최고 체중**: {r['weight']:.2f} kg — {r['start_time'].strftime('%Y-%m-%d')}")
+            r = df_daily.loc[df_daily["weight"].idxmax()]
+            st.error(f"**최고 체중**: {r['weight']:.2f} kg — {r['date'].strftime('%Y-%m-%d')}")
 
 
 # ── Tab 2: 체성분 ─────────────────────────────────────────────────────────────
