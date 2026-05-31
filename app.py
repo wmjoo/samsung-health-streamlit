@@ -12,7 +12,6 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("⚖️ Samsung Health 체중 데이터 분석")
 st.caption("데이터는 업로드 즉시 브라우저 세션에서만 처리되며, 서버에 저장되지 않습니다.")
 
 # ── 공통 격자선 레이아웃 ──────────────────────────────────────────────────────
@@ -174,10 +173,10 @@ with tab1:
     dtick_major, dtick_minor = PERIOD_DTICK[period_label]
 
     MA_LINES = [
-        (7,  "7일 MA",  "rgba(255,165,0,0.9)"),
-        (15, "15일 MA", "rgba(239,85,59,0.9)"),
-        (30, "30일 MA", "rgba(0,180,100,0.9)"),
-        (90, "90일 MA", "rgba(99,110,250,0.9)"),
+        (7,  "7일 MA",  "rgba(255,165,0,0.9)",  True),
+        (15, "15일 MA", "rgba(239,85,59,0.9)",  False),
+        (30, "30일 MA", "rgba(0,180,100,0.9)",  False),
+        (90, "90일 MA", "rgba(99,110,250,0.9)", False),
     ]
 
     fig = go.Figure()
@@ -191,12 +190,13 @@ with tab1:
 
     if len(df_daily) > 0:
         ts = df_daily.set_index("date")["weight"]
-        for ma_d, ma_name, ma_color in MA_LINES:
+        for ma_d, ma_name, ma_color, visible in MA_LINES:
             ma = ts.rolling(f"{ma_d}D", min_periods=1).mean().reset_index()
             fig.add_trace(go.Scatter(
                 x=ma["date"], y=ma["weight"],
                 mode="lines",
                 name=ma_name,
+                visible=True if visible else "legendonly",
                 line=dict(color=ma_color, width=2),
                 hovertemplate=f"%{{x|%Y-%m-%d}}<br>{ma_name}: %{{y:.2f}} kg<extra></extra>",
             ))
