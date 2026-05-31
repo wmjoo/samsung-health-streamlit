@@ -401,6 +401,17 @@ with tab3:
         # 일별 집계 후 월별 박스플롯 — 하루에 여러 번 측정해도 1일 1값
         box_keys = [k for k in available_box]
         df_box = daily_agg(df, [k for k in box_keys if k in df.columns])
+
+        # 연도 드롭다운
+        all_years = sorted(df_box["date"].dt.year.unique(), reverse=True)
+        latest_year = all_years[0]
+        year_options = ["전체"] + [str(y) for y in all_years]
+        default_idx = year_options.index(str(latest_year))
+        selected_year = st.selectbox("연도 선택", year_options, index=default_idx)
+
+        if selected_year != "전체":
+            df_box = df_box[df_box["date"].dt.year == int(selected_year)]
+
         all_months = sorted(df_box["year_month"].unique())
 
         fig_box = make_subplots(
