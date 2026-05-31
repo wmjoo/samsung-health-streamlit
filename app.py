@@ -115,23 +115,8 @@ if df.empty:
     st.error("데이터를 파싱할 수 없습니다. 올바른 Samsung Health 체중 CSV인지 확인하세요.")
     st.stop()
 
-# ── 요약 지표 (전체 데이터 기준) ──────────────────────────────────────────────
 latest = df.iloc[-1]
 first = df.iloc[0]
-
-st.subheader("📊 요약")
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("현재 체중", f"{latest['weight']:.1f} kg",
-            f"{latest['weight'] - first['weight']:+.1f} kg")
-col2.metric("최저 체중", f"{df['weight'].min():.1f} kg")
-col3.metric("최고 체중", f"{df['weight'].max():.1f} kg")
-if pd.notna(latest.get("body_fat")):
-    col4.metric("현재 체지방률", f"{latest['body_fat']:.1f} %")
-else:
-    col4.metric("체지방률", "데이터 없음")
-col5.metric("전체 기록", f"{len(df):,} 건")
-
-st.divider()
 
 # ── 탭 구성 ───────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs(["📈 체중 추이", "💪 체성분", "📅 월별 분석", "🗃️ 원시 데이터"])
@@ -268,6 +253,19 @@ with tab1:
         with col_r:
             r = df_daily.loc[df_daily["weight"].idxmax()]
             st.error(f"**최고 체중**: {r['weight']:.2f} kg — {r['date'].strftime('%Y-%m-%d')}")
+
+    st.divider()
+    st.subheader("📊 요약")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("현재 체중", f"{latest['weight']:.1f} kg",
+                f"{latest['weight'] - first['weight']:+.1f} kg")
+    col2.metric("최저 체중", f"{df['weight'].min():.1f} kg")
+    col3.metric("최고 체중", f"{df['weight'].max():.1f} kg")
+    if pd.notna(latest.get("body_fat")):
+        col4.metric("현재 체지방률", f"{latest['body_fat']:.1f} %")
+    else:
+        col4.metric("체지방률", "데이터 없음")
+    col5.metric("전체 기록", f"{len(df):,} 건")
 
 
 # ── Tab 2: 체성분 ─────────────────────────────────────────────────────────────
