@@ -338,8 +338,21 @@ with tab2:
         )
 
         if selected:
+            # 기간 드롭다운 (체중 추이 탭과 동일 옵션)
+            COMP_PERIOD = {
+                "최근 30일": 30, "최근 90일": 90, "최근 180일": 180,
+                "최근 1년": 365, "최근 3년": 365 * 3, "최근 5년": 365 * 5, "전체": None,
+            }
+            comp_period_label = st.selectbox(
+                "기간", options=list(COMP_PERIOD.keys()), index=6, key="comp_period"
+            )
+            comp_days = COMP_PERIOD[comp_period_label]
+
             # 일별 집계
             df_comp = daily_agg(df, [k for k in selected if k in df.columns])
+            if comp_days is not None:
+                cutoff = df_comp["date"].max() - timedelta(days=comp_days)
+                df_comp = df_comp[df_comp["date"] >= cutoff]
 
             fig2 = make_subplots(
                 rows=len(selected), cols=1,
