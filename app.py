@@ -12,31 +12,29 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── 상수 ──────────────────────────────────────────────────────────────────────
+PERIOD_OPTIONS = {
+    "최근 30일": 30,
+    "최근 90일": 90,
+    "최근 180일": 180,
+    "최근 1년": 365,
+    "최근 3년": 365 * 3,
+    "최근 5년": 365 * 5,
+    "전체": None,
+}
+PERIOD_DTICK = {
+    "최근 30일":  (3 * 24 * 3600000, 24 * 3600000),
+    "최근 90일":  (7 * 24 * 3600000, 3 * 24 * 3600000),
+    "최근 180일": ("M1", 7 * 24 * 3600000),
+    "최근 1년":   ("M1", 7 * 24 * 3600000),
+    "최근 3년":   ("M3", "M1"),
+    "최근 5년":   ("M3", "M1"),
+    "전체":       ("M6", "M1"),
+}
+COLOR_MIN = "#1c7c3a"
+COLOR_MAX = "#a63228"
 
-# ── 공통 격자선 레이아웃 ──────────────────────────────────────────────────────
-GRID = dict(
-    xaxis=dict(
-        showgrid=True,
-        gridcolor="rgba(200,200,200,0.4)",
-        gridwidth=1,
-        dtick="M1",          # x축: 1개월 간격 격자
-        tickformat="%y-%m",
-        minor=dict(
-            showgrid=True,
-            gridcolor="rgba(200,200,200,0.2)",
-            gridwidth=0.5,
-            dtick=7 * 24 * 3600000,  # 1주 단위 세밀 격자 (밀리초)
-        ),
-    ),
-    yaxis=dict(
-        showgrid=True,
-        gridcolor="rgba(200,200,200,0.5)",
-        gridwidth=1,
-    ),
-    plot_bgcolor="white",
-)
-
-# ── 파일 업로드 ──────────────────────────────────────────────────────────────
+# ── 파일 업로드 + 글로벌 필터 (사이드바) ─────────────────────────────────────
 with st.sidebar:
     st.header("📂 데이터 업로드")
     st.info(
@@ -53,7 +51,6 @@ with st.sidebar:
     )
 
 if uploaded is None:
-    st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(
@@ -72,23 +69,15 @@ if uploaded is None:
 def load_data(content: bytes) -> pd.DataFrame:
     text = content.decode("utf-8-sig")
     lines = text.splitlines()
-
-    # 삼성헬스 CSV: 1행은 메타데이터, 2행부터 실제 헤더
-    # 데이터 행이 헤더보다 열이 1개 많아 index_col=False 필요
     df = pd.read_csv(StringIO("\n".join(lines[1:])), low_memory=False, index_col=False)
-
     df["start_time"] = pd.to_datetime(df["start_time"], errors="coerce")
-
     numeric_cols = ["weight", "body_fat", "body_fat_mass", "muscle_mass",
                     "skeletal_muscle_mass", "fat_free_mass", "basal_metabolic_rate",
                     "height", "total_body_water"]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # 비정상 체중값 제거 (70kg 미만)
     df = df[df["weight"] >= 70]
-
     df = df.dropna(subset=["start_time", "weight"])
     df = df.sort_values("start_time").reset_index(drop=True)
     df["date"] = df["start_time"].dt.date
@@ -96,10 +85,10 @@ def load_data(content: bytes) -> pd.DataFrame:
     return df
 
 
-def daily_agg(df: pd.DataFrame, cols: list, func: str = "mean") -> pd.DataFrame:
-    """날짜별 집계 (평균 or 중앙값). date 컬럼 + 지정 컬럼만 반환."""
+def daily_agg(source: pd.DataFrame, cols: list, func: str = "mean") -> pd.DataFrame:
+    valid = [c for c in cols if c in source.columns]
     return (
-        df.groupby("date")[cols]
+        source.groupby("date")[valid]
         .agg(func)
         .reset_index()
         .assign(date=lambda d: pd.to_datetime(d["date"]),
@@ -113,63 +102,89 @@ if df.empty:
     st.error("데이터를 파싱할 수 없습니다. 올바른 Samsung Health 체중 CSV인지 확인하세요.")
     st.stop()
 
-latest = df.iloc[-1]
-first = df.iloc[0]
+# ── 글로벌 필터 (사이드바, session_state로 상호 배타) ─────────────────────────
+all_years = sorted(df["start_time"].dt.year.unique(), reverse=True)
+year_options = ["전체"] + [str(y) for y in all_years]
+
+# session_state 초기화
+if "filter_period" not in st.session_state:
+    st.session_state["filter_period"] = "최근 90일"
+if "filter_year" not in st.session_state:
+    st.session_state["filter_year"] = "전체"
+
+def on_period_change():
+    if st.session_state["_period_select"] != "전체":
+        st.session_state["filter_year"] = "전체"
+    st.session_state["filter_period"] = st.session_state["_period_select"]
+
+def on_year_change():
+    if st.session_state["_year_select"] != "전체":
+        st.session_state["filter_period"] = "전체"
+    st.session_state["filter_year"] = st.session_state["_year_select"]
+
+with st.sidebar:
+    st.divider()
+    st.header("🔍 기간 필터")
+    st.selectbox(
+        "최근 기간",
+        options=list(PERIOD_OPTIONS.keys()),
+        index=list(PERIOD_OPTIONS.keys()).index(st.session_state["filter_period"]),
+        key="_period_select",
+        on_change=on_period_change,
+    )
+    st.selectbox(
+        "연도",
+        options=year_options,
+        index=year_options.index(st.session_state["filter_year"]),
+        key="_year_select",
+        on_change=on_year_change,
+    )
+
+# 필터 적용 → df_f (전 탭 공통)
+sel_period = st.session_state["filter_period"]
+sel_year   = st.session_state["filter_year"]
+
+if sel_year != "전체":
+    df_f = df[df["start_time"].dt.year == int(sel_year)].copy()
+    active_filter_label = f"{sel_year}년"
+elif PERIOD_OPTIONS[sel_period] is not None:
+    cutoff = df["start_time"].max() - timedelta(days=PERIOD_OPTIONS[sel_period])
+    df_f = df[df["start_time"] >= cutoff].copy()
+    active_filter_label = sel_period
+else:
+    df_f = df.copy()
+    active_filter_label = "전체"
+
+latest = df_f.iloc[-1] if len(df_f) else df.iloc[-1]
+first  = df_f.iloc[0]  if len(df_f) else df.iloc[0]
 
 # ── 탭 구성 ───────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs(["📈 체중 추이", "💪 체성분", "📅 월별 분석", "🗃️ 원시 데이터"])
 
 # ── Tab 1: 체중 추이 ──────────────────────────────────────────────────────────
 with tab1:
-    PERIOD_OPTIONS = {
-        "최근 30일": 30,
-        "최근 90일": 90,
-        "최근 180일": 180,
-        "최근 1년": 365,
-        "최근 3년": 365 * 3,
-        "최근 5년": 365 * 5,
-        "전체": None,
-    }
-    # 기간에 따라 x축 격자 간격 자동 조정
-    PERIOD_DTICK = {
-        "최근 30일":  (3 * 24 * 3600000, 24 * 3600000),      # 3일/1일
-        "최근 90일":  (7 * 24 * 3600000, 3 * 24 * 3600000),  # 1주/3일
-        "최근 180일": ("M1", 7 * 24 * 3600000),               # 1개월/1주
-        "최근 1년":   ("M1", 7 * 24 * 3600000),
-        "최근 3년":   ("M3", "M1"),
-        "최근 5년":   ("M3", "M1"),
-        "전체":       ("M6", "M1"),
-    }
-
-    col_period, col_agg = st.columns([2, 2])
-    with col_period:
-        period_label = st.selectbox(
-            "기간",
-            options=list(PERIOD_OPTIONS.keys()),
-            index=1,
-        )
+    col_agg, _ = st.columns([2, 2])
     with col_agg:
         use_median = st.toggle("중앙값 사용 (기본: 평균)", value=False)
 
-    agg_func = "median" if use_median else "mean"
-    agg_label = "중앙값" if use_median else "평균"
+    agg_func  = "median" if use_median else "mean"
+    agg_label = "중앙값"  if use_median else "평균"
 
-    period_days = PERIOD_OPTIONS[period_label]
-    if period_days is not None:
-        cutoff = df["start_time"].max() - timedelta(days=period_days)
-        df_t = df[df["start_time"] >= cutoff].copy()
-    else:
-        df_t = df.copy()
-
-    # 일별 집계 (평균 or 중앙값)
     df_daily = (
-        df_t.groupby("date")["weight"]
+        df_f.groupby("date")["weight"]
         .agg(agg_func)
         .reset_index()
+        .assign(date=lambda d: pd.to_datetime(d["date"]))
     )
-    df_daily["date"] = pd.to_datetime(df_daily["date"])
 
-    dtick_major, dtick_minor = PERIOD_DTICK[period_label]
+    # 격자 간격: 연도 필터면 월 단위, 기간 필터면 PERIOD_DTICK
+    if sel_year != "전체":
+        dtick_major, dtick_minor = "M1", 7 * 24 * 3600000
+        tick_fmt = "%y-%m"
+    else:
+        dtick_major, dtick_minor = PERIOD_DTICK[sel_period]
+        period_days = PERIOD_OPTIONS[sel_period]
+        tick_fmt = "%y-%m-%d" if period_days and period_days <= 90 else "%y-%m"
 
     MA_LINES = [
         (7,  "7일 MA",  "rgba(255,165,0,0.9)",  True),
@@ -178,141 +193,99 @@ with tab1:
         (90, "90일 MA", "rgba(99,110,250,0.9)", False),
     ]
 
-    idx_min = df_daily["weight"].idxmin()
-    idx_max = df_daily["weight"].idxmax()
-    d_min = df_daily.loc[idx_min]
-    d_max = df_daily.loc[idx_max]
-
-    # 일반 점 (최저/최고 제외)
-    mask_normal = ~df_daily.index.isin([idx_min, idx_max])
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df_daily.loc[mask_normal, "date"],
-        y=df_daily.loc[mask_normal, "weight"],
-        mode="markers",
-        name=f"일별 {agg_label}",
-        marker=dict(size=6, color="rgba(100,100,110,0.6)"),
-        hovertemplate="%{x|%Y-%m-%d}<br>체중: %{y:.2f} kg<extra></extra>",
-    ))
-
-    COLOR_MIN = "#1c7c3a"   # Streamlit success 텍스트 색조
-    COLOR_MAX = "#a63228"   # Streamlit error 텍스트 색조
-
-    # 최저 마커
-    fig.add_trace(go.Scatter(
-        x=[d_min["date"]], y=[d_min["weight"]],
-        mode="markers",
-        name="최저",
-        marker=dict(size=11, color=COLOR_MIN, symbol="circle",
-                    line=dict(color=COLOR_MIN, width=1.5)),
-        hovertemplate=f"최저: {d_min['weight']:.2f} kg<br>{d_min['date'].strftime('%Y-%m-%d')}<extra></extra>",
-    ))
-
-    # 최고 마커
-    fig.add_trace(go.Scatter(
-        x=[d_max["date"]], y=[d_max["weight"]],
-        mode="markers",
-        name="최고",
-        marker=dict(size=11, color=COLOR_MAX, symbol="circle",
-                    line=dict(color=COLOR_MAX, width=1.5)),
-        hovertemplate=f"최고: {d_max['weight']:.2f} kg<br>{d_max['date'].strftime('%Y-%m-%d')}<extra></extra>",
-    ))
-
-    # 어노테이션
-    annotations = [
-        dict(
-            x=d_min["date"], y=d_min["weight"],
-            text=f"<b>{d_min['weight']:.1f} kg</b>",
-            showarrow=True, arrowhead=2, arrowcolor=COLOR_MIN,
-            ax=0, ay=30, font=dict(color=COLOR_MIN, size=12),
-        ),
-        dict(
-            x=d_max["date"], y=d_max["weight"],
-            text=f"<b>{d_max['weight']:.1f} kg</b>",
-            showarrow=True, arrowhead=2, arrowcolor=COLOR_MAX,
-            ax=0, ay=-30, font=dict(color=COLOR_MAX, size=12),
-        ),
-    ]
-
     if len(df_daily) > 0:
+        idx_min = df_daily["weight"].idxmin()
+        idx_max = df_daily["weight"].idxmax()
+        d_min = df_daily.loc[idx_min]
+        d_max = df_daily.loc[idx_max]
+        mask_normal = ~df_daily.index.isin([idx_min, idx_max])
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_daily.loc[mask_normal, "date"],
+            y=df_daily.loc[mask_normal, "weight"],
+            mode="markers",
+            name=f"일별 {agg_label}",
+            marker=dict(size=6, color="rgba(100,100,110,0.6)"),
+            hovertemplate="%{x|%Y-%m-%d}<br>체중: %{y:.2f} kg<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[d_min["date"]], y=[d_min["weight"]],
+            mode="markers", name="최저",
+            marker=dict(size=11, color=COLOR_MIN, line=dict(color=COLOR_MIN, width=1.5)),
+            hovertemplate=f"최저: {d_min['weight']:.2f} kg<br>{d_min['date'].strftime('%Y-%m-%d')}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[d_max["date"]], y=[d_max["weight"]],
+            mode="markers", name="최고",
+            marker=dict(size=11, color=COLOR_MAX, line=dict(color=COLOR_MAX, width=1.5)),
+            hovertemplate=f"최고: {d_max['weight']:.2f} kg<br>{d_max['date'].strftime('%Y-%m-%d')}<extra></extra>",
+        ))
+
         ts = df_daily.set_index("date")["weight"]
-        for ma_d, ma_name, ma_color, visible in MA_LINES:
+        for ma_d, ma_name, ma_color, vis in MA_LINES:
             ma = ts.rolling(f"{ma_d}D", min_periods=1).mean().reset_index()
             fig.add_trace(go.Scatter(
                 x=ma["date"], y=ma["weight"],
-                mode="lines",
-                name=ma_name,
-                visible=True if visible else "legendonly",
+                mode="lines", name=ma_name,
+                visible=True if vis else "legendonly",
                 line=dict(color=ma_color, width=2),
                 hovertemplate=f"%{{x|%Y-%m-%d}}<br>{ma_name}: %{{y:.2f}} kg<extra></extra>",
             ))
 
-    fig.update_layout(
-        title=f"체중 변화 추이 ({period_label} · 일별 {agg_label})",
-        annotations=annotations,
-        xaxis_title=None,
-        yaxis_title="체중 (kg)",
-        hovermode="x unified",
-        height=480,
-        plot_bgcolor="white",
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.15,
-            xanchor="center",
-            x=0.5,
-        ),
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(150,150,150,0.4)",
-            gridwidth=1,
-            dtick=dtick_major,
-            tickformat="%y-%m-%d" if period_days and period_days <= 90 else "%y-%m",
-            minor=dict(
-                showgrid=True,
-                gridcolor="rgba(200,200,200,0.25)",
-                gridwidth=0.5,
-                dtick=dtick_minor,
-            ),
-            showline=True,
-            linecolor="rgba(100,100,100,0.5)",
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(150,150,150,0.4)",
-            gridwidth=1,
-            minor=dict(
-                showgrid=True,
-                gridcolor="rgba(200,200,200,0.25)",
-                gridwidth=0.5,
-            ),
-            showline=True,
-            linecolor="rgba(100,100,100,0.5)",
-        ),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        annotations = [
+            dict(x=d_min["date"], y=d_min["weight"],
+                 text=f"<b>{d_min['weight']:.1f} kg</b>",
+                 showarrow=True, arrowhead=2, arrowcolor=COLOR_MIN,
+                 ax=0, ay=30, font=dict(color=COLOR_MIN, size=12)),
+            dict(x=d_max["date"], y=d_max["weight"],
+                 text=f"<b>{d_max['weight']:.1f} kg</b>",
+                 showarrow=True, arrowhead=2, arrowcolor=COLOR_MAX,
+                 ax=0, ay=-30, font=dict(color=COLOR_MAX, size=12)),
+        ]
 
-    if len(df_daily) > 0:
+        fig.update_layout(
+            title=f"체중 변화 추이 ({active_filter_label} · 일별 {agg_label})",
+            annotations=annotations,
+            xaxis_title=None,
+            yaxis_title="체중 (kg)",
+            hovermode="x unified",
+            height=480,
+            plot_bgcolor="white",
+            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+            xaxis=dict(
+                showgrid=True, gridcolor="rgba(150,150,150,0.4)", gridwidth=1,
+                dtick=dtick_major, tickformat=tick_fmt,
+                minor=dict(showgrid=True, gridcolor="rgba(200,200,200,0.25)",
+                           gridwidth=0.5, dtick=dtick_minor),
+                showline=True, linecolor="rgba(100,100,100,0.5)",
+            ),
+            yaxis=dict(
+                showgrid=True, gridcolor="rgba(150,150,150,0.4)", gridwidth=1,
+                minor=dict(showgrid=True, gridcolor="rgba(200,200,200,0.25)", gridwidth=0.5),
+                showline=True, linecolor="rgba(100,100,100,0.5)",
+            ),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
         col_l, col_r = st.columns(2)
         with col_l:
-            r = df_daily.loc[df_daily["weight"].idxmin()]
-            st.success(f"**최저 체중**: {r['weight']:.2f} kg — {r['date'].strftime('%Y-%m-%d')}")
+            st.success(f"**최저 체중**: {d_min['weight']:.2f} kg — {d_min['date'].strftime('%Y-%m-%d')}")
         with col_r:
-            r = df_daily.loc[df_daily["weight"].idxmax()]
-            st.error(f"**최고 체중**: {r['weight']:.2f} kg — {r['date'].strftime('%Y-%m-%d')}")
+            st.error(f"**최고 체중**: {d_max['weight']:.2f} kg — {d_max['date'].strftime('%Y-%m-%d')}")
 
     st.divider()
     st.subheader("📊 요약")
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("현재 체중", f"{latest['weight']:.1f} kg",
                 f"{latest['weight'] - first['weight']:+.1f} kg")
-    col2.metric("최저 체중", f"{df['weight'].min():.1f} kg")
-    col3.metric("최고 체중", f"{df['weight'].max():.1f} kg")
+    col2.metric("최저 체중", f"{df_f['weight'].min():.1f} kg")
+    col3.metric("최고 체중", f"{df_f['weight'].max():.1f} kg")
     if pd.notna(latest.get("body_fat")):
         col4.metric("현재 체지방률", f"{latest['body_fat']:.1f} %")
     else:
         col4.metric("체지방률", "데이터 없음")
-    col5.metric("전체 기록", f"{len(df):,} 건")
+    col5.metric("기간 기록", f"{len(df_f):,} 건")
 
 
 # ── Tab 2: 체성분 ─────────────────────────────────────────────────────────────
@@ -328,7 +301,7 @@ with tab2:
     available = {k: v for k, v in comp_cols.items() if k in df.columns and df[k].notna().sum() > 5}
 
     if not available:
-        st.info("체성분 데이터가 충분하지 않습니다. 상세 측정 기기의 데이터를 포함한 파일을 업로드하세요.")
+        st.info("체성분 데이터가 충분하지 않습니다.")
     else:
         selected = st.multiselect(
             "표시할 항목 선택",
@@ -338,21 +311,8 @@ with tab2:
         )
 
         if selected:
-            # 기간 드롭다운 (체중 추이 탭과 동일 옵션)
-            COMP_PERIOD = {
-                "최근 30일": 30, "최근 90일": 90, "최근 180일": 180,
-                "최근 1년": 365, "최근 3년": 365 * 3, "최근 5년": 365 * 5, "전체": None,
-            }
-            comp_period_label = st.selectbox(
-                "기간", options=list(COMP_PERIOD.keys()), index=6, key="comp_period"
-            )
-            comp_days = COMP_PERIOD[comp_period_label]
-
-            # 일별 집계
-            df_comp = daily_agg(df, [k for k in selected if k in df.columns])
-            if comp_days is not None:
-                cutoff = df_comp["date"].max() - timedelta(days=comp_days)
-                df_comp = df_comp[df_comp["date"] >= cutoff]
+            df_comp = daily_agg(df_f, selected)
+            colors = px.colors.qualitative.Plotly
 
             fig2 = make_subplots(
                 rows=len(selected), cols=1,
@@ -360,8 +320,6 @@ with tab2:
                 subplot_titles=[available[k] for k in selected],
                 vertical_spacing=0.06,
             )
-            colors = px.colors.qualitative.Plotly
-
             for i, key in enumerate(selected, 1):
                 sub = df_comp[["date", key]].dropna()
                 fig2.add_trace(
@@ -389,8 +347,8 @@ with tab2:
                     showline=True, linecolor="rgba(100,100,100,0.5)",
                     row=i, col=1,
                 )
-
             fig2.update_layout(
+                title=f"체성분 추이 ({active_filter_label})",
                 height=300 * len(selected),
                 showlegend=False,
                 hovermode="x unified",
@@ -411,20 +369,7 @@ with tab3:
 
     if available_box:
         n = len(available_box)
-        # 일별 집계 후 월별 박스플롯 — 하루에 여러 번 측정해도 1일 1값
-        box_keys = [k for k in available_box]
-        df_box = daily_agg(df, [k for k in box_keys if k in df.columns])
-
-        # 연도 드롭다운
-        all_years = sorted(df_box["date"].dt.year.unique(), reverse=True)
-        latest_year = all_years[0]
-        year_options = ["전체"] + [str(y) for y in all_years]
-        default_idx = year_options.index(str(latest_year))
-        selected_year = st.selectbox("연도 선택", year_options, index=default_idx)
-
-        if selected_year != "전체":
-            df_box = df_box[df_box["date"].dt.year == int(selected_year)]
-
+        df_box = daily_agg(df_f, list(available_box.keys()))
         all_months = sorted(df_box["year_month"].unique())
 
         fig_box = make_subplots(
@@ -433,18 +378,14 @@ with tab3:
             subplot_titles=[v[0] for v in available_box.values()],
             vertical_spacing=0.06,
         )
-
         for row, (col_key, (label, color)) in enumerate(available_box.items(), 1):
             sub = df_box[["year_month", col_key]].dropna()
             for month in all_months:
                 vals = sub.loc[sub["year_month"] == month, col_key]
                 fig_box.add_trace(
                     go.Box(
-                        y=vals,
-                        name=month,
-                        marker_color=color,
-                        boxmean=True,
-                        showlegend=False,
+                        y=vals, name=month, marker_color=color,
+                        boxmean=True, showlegend=False,
                         hovertemplate=f"{month}<br>{label}: %{{y:.2f}}<extra></extra>",
                     ),
                     row=row, col=1,
@@ -456,8 +397,6 @@ with tab3:
                 showline=True, linecolor="rgba(100,100,100,0.5)",
                 row=row, col=1,
             )
-
-        # x축은 맨 아래 행만 표시
         fig_box.update_xaxes(
             showgrid=True, gridcolor="rgba(150,150,150,0.5)", gridwidth=1,
             tickangle=-45,
@@ -465,7 +404,7 @@ with tab3:
             row=n, col=1,
         )
         fig_box.update_layout(
-            title="월별 체성분 분포",
+            title=f"월별 체성분 분포 ({active_filter_label})",
             height=320 * n,
             plot_bgcolor="white",
         )
@@ -477,10 +416,8 @@ with tab4:
     st.info("이 데이터는 현재 세션에서만 존재하며 페이지를 닫으면 사라집니다.")
     agg_cols = ["weight", "body_fat", "body_fat_mass", "muscle_mass",
                 "skeletal_muscle_mass", "fat_free_mass", "basal_metabolic_rate"]
-    valid_agg_cols = [c for c in agg_cols if c in df.columns]
-    df_raw_daily = daily_agg(df, valid_agg_cols).drop(columns="year_month")
+    df_raw_daily = daily_agg(df_f, agg_cols).drop(columns="year_month")
     df_raw_daily = df_raw_daily.sort_values("date", ascending=False)
-    # 전체가 결측치인 컬럼 제거
     df_raw_daily = df_raw_daily.dropna(axis=1, how="all")
     df_raw_daily.columns = [c if c != "date" else "날짜" for c in df_raw_daily.columns]
 
