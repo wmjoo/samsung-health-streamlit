@@ -12,7 +12,6 @@ st.set_page_config(
     layout="wide",
 )
 
-st.caption("데이터는 업로드 즉시 브라우저 세션에서만 처리되며, 서버에 저장되지 않습니다.")
 
 # ── 공통 격자선 레이아웃 ──────────────────────────────────────────────────────
 GRID = dict(
@@ -179,14 +178,58 @@ with tab1:
         (90, "90일 MA", "rgba(99,110,250,0.9)", False),
     ]
 
+    idx_min = df_daily["weight"].idxmin()
+    idx_max = df_daily["weight"].idxmax()
+    d_min = df_daily.loc[idx_min]
+    d_max = df_daily.loc[idx_max]
+
+    # 일반 점 (최저/최고 제외)
+    mask_normal = ~df_daily.index.isin([idx_min, idx_max])
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df_daily["date"], y=df_daily["weight"],
+        x=df_daily.loc[mask_normal, "date"],
+        y=df_daily.loc[mask_normal, "weight"],
         mode="markers",
         name=f"일별 {agg_label}",
-        marker=dict(size=4, color="rgba(160,160,180,0.5)"),
+        marker=dict(size=6, color="rgba(100,100,110,0.6)"),
         hovertemplate="%{x|%Y-%m-%d}<br>체중: %{y:.2f} kg<extra></extra>",
     ))
+
+    # 최저 마커
+    fig.add_trace(go.Scatter(
+        x=[d_min["date"]], y=[d_min["weight"]],
+        mode="markers",
+        name="최저",
+        marker=dict(size=11, color="green", symbol="circle",
+                    line=dict(color="darkgreen", width=1.5)),
+        hovertemplate=f"최저: {d_min['weight']:.2f} kg<br>{d_min['date'].strftime('%Y-%m-%d')}<extra></extra>",
+    ))
+
+    # 최고 마커
+    fig.add_trace(go.Scatter(
+        x=[d_max["date"]], y=[d_max["weight"]],
+        mode="markers",
+        name="최고",
+        marker=dict(size=11, color="red", symbol="circle",
+                    line=dict(color="darkred", width=1.5)),
+        hovertemplate=f"최고: {d_max['weight']:.2f} kg<br>{d_max['date'].strftime('%Y-%m-%d')}<extra></extra>",
+    ))
+
+    # 어노테이션
+    annotations = [
+        dict(
+            x=d_min["date"], y=d_min["weight"],
+            text=f"<b>{d_min['weight']:.1f} kg</b>",
+            showarrow=True, arrowhead=2, arrowcolor="green",
+            ax=0, ay=30, font=dict(color="green", size=12),
+        ),
+        dict(
+            x=d_max["date"], y=d_max["weight"],
+            text=f"<b>{d_max['weight']:.1f} kg</b>",
+            showarrow=True, arrowhead=2, arrowcolor="red",
+            ax=0, ay=-30, font=dict(color="red", size=12),
+        ),
+    ]
 
     if len(df_daily) > 0:
         ts = df_daily.set_index("date")["weight"]
@@ -203,6 +246,7 @@ with tab1:
 
     fig.update_layout(
         title=f"체중 변화 추이 ({period_label} · 일별 {agg_label})",
+        annotations=annotations,
         xaxis_title=None,
         yaxis_title="체중 (kg)",
         hovermode="x unified",
